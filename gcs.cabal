@@ -1,5 +1,5 @@
 name:                gcs
-version:             0.1.0
+version:             0.1.1
 synopsis:            Google Cloud Storage REST client
 description:         Google Cloud Storage REST client
 homepage:            https://github.com/collegevine/gcs#readme

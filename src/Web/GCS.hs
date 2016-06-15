@@ -3,7 +3,8 @@
 module Web.GCS(
     upload,
     download,
-    downloadURL
+    downloadURL,
+    getSignedURL
 ) where
 
 import Web.GCS.Types
@@ -17,9 +18,11 @@ import Crypto.Hash.Algorithms (SHA256(..))
 import Crypto.PubKey.RSA.PKCS15 (sign)
 import Data.Aeson hiding (Array)
 import Data.ByteString.Char8 as B
+import qualified Data.ByteString.Base64 as B64R
 import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Monoid
+import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Network.HTTP.Nano
 
@@ -42,6 +45,26 @@ downloadURL :: (MonadIO m, MonadError e m, AsHttpError e, MonadReader r m, HasGc
 downloadURL url = do
     req <- buildGCSReq GET url NoRequestData
     http req
+
+-- |Get a signed URL for an object
+getSignedURL :: (MonadError e m, MonadReader r m, HasGcsCfg r) => String -> Int -> m String
+getSignedURL name expUTC = do
+    (GcsCfg bucket email pkey) <- view gcsCfg
+    let path = "/"<>bucket<>"/"<>name
+    let str = B.pack $ mconcat ["GET\n", "\n", "\n", show expUTC<>"\n", path]
+    let sig = either (const "") B64R.encode $ sign Nothing (Just SHA256) pkey str
+    let esig = T.unpack . T.replace "+" "%2B" . T.replace "/" "%2F" . T.pack $ B.unpack sig
+    return $
+        mconcat [
+            "http://storage.googleapis.com",
+            path,
+            "?GoogleAccessId=",
+            email,
+            "&Expires=",
+            show expUTC,
+            "&Signature=",
+            esig
+        ]
 
 --
 -- Utility
