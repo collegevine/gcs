@@ -26,6 +26,8 @@ library
                      , aeson >= 0.11.2.0
                      , cryptonite >=  0.15
                      , nano-http >= 0.1.2
+                     , lens-aeson >= 1.0
+                     , vector >= 0.11
   default-language:    Haskell2010
 
 source-repository head
