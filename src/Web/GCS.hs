@@ -120,5 +120,7 @@ escapeName :: String -> String
 escapeName = escapeURIString f
     where
         f x | x `elem` ['A'..'Z'] = True
+            | x `elem` ['a'..'z'] = True
+            | x `elem` ['0'..'9'] = True
             | x `elem` ("-._~!$&\'()*+,;=:@" :: String) = True
             | otherwise = False
