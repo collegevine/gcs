@@ -23,6 +23,7 @@ import Data.Maybe (mapMaybe)
 import Data.Monoid
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Network.HTTP.Nano
+import Network.URI (escapeURIString)
 import qualified Data.ByteString.Base64     as B64R
 import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.ByteString.Char8      as B
@@ -51,7 +52,8 @@ list = do
 upload :: (MonadIO m, MonadError e m, AsHttpError e, MonadReader r m, HasGcsCfg r, HasHttpCfg r) => String -> String -> BL.ByteString -> m ()
 upload mime name dta = do
     bucket <- view gcsCfgBucket
-    let url = "https://www.googleapis.com/upload/storage/v1/b/"<>bucket<>"/o?uploadType=media&name="<>name
+    let url = "https://www.googleapis.com/upload/storage/v1/b/"<>
+          bucket<>"/o?uploadType=media&name="<> escapeName name
     req <- addHeaders [("Content-Type", mime),("Content-length", show $ BL.length dta)] <$> buildGCSReq POST url (RawRequestData dta)
     http' req
 
@@ -59,7 +61,8 @@ upload mime name dta = do
 download :: (MonadIO m, MonadError e m, AsHttpError e, MonadReader r m, HasGcsCfg r, HasHttpCfg r) => String -> m BL.ByteString
 download name = do
     bucket <- view gcsCfgBucket
-    downloadURL $ "https://www.googleapis.com/storage/v1/b/"<>bucket<>"/o/"<>name<>"?alt=media"
+    downloadURL $ "https://www.googleapis.com/storage/v1/b/"<>bucket<>"/o/"<>
+      escapeName name <>"?alt=media"
 
 -- |Download from a URL
 downloadURL :: (MonadIO m, MonadError e m, AsHttpError e, MonadReader r m, HasGcsCfg r, HasHttpCfg r) => String -> m BL.ByteString
@@ -71,7 +74,7 @@ downloadURL url = do
 getSignedURL :: (MonadError e m, MonadReader r m, HasGcsCfg r) => String -> Int -> m String
 getSignedURL name expUTC = do
     (GcsCfg bucket email pkey) <- view gcsCfg
-    let path = "/"<>bucket<>"/"<>name
+    let path = "/"<>bucket<>"/"<>escapeName name
     let str = B.pack $ mconcat ["GET\n", "\n", "\n", show expUTC<>"\n", path]
     let sig = either (const "") B64R.encode $ sign Nothing (Just SHA256) pkey str
     let esig = T.unpack . T.replace "+" "%2B" . T.replace "/" "%2F" . T.pack $ B.unpack sig
@@ -112,3 +115,10 @@ getGCSJWT = do
     let body = B64.encode . BL.toStrict $ encode obj
     let sig = either (const "") B64.encode $ sign Nothing (Just SHA256) pkey (header<>"."<>body)
     return . B.unpack $ header<>"."<>body<>"."<>sig
+
+escapeName :: String -> String
+escapeName = escapeURIString f
+    where
+        f x | x `elem` ['A'..'Z'] = True
+            | x `elem` ("-._~!$&\'()*+,;=:@" :: String) = True
+            | otherwise = False
