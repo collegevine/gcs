@@ -1,6 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Web.GCS(
+    list,
     upload,
     download,
     downloadURL,
@@ -9,22 +11,41 @@ module Web.GCS(
 
 import Web.GCS.Types
 
-import Control.Lens (view, (^.))
-import Control.Monad (mzero)
+import Control.Lens (view, (^?))
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Crypto.Hash.Algorithms (SHA256(..))
 import Crypto.PubKey.RSA.PKCS15 (sign)
 import Data.Aeson hiding (Array)
-import Data.ByteString.Char8 as B
-import qualified Data.ByteString.Base64 as B64R
-import qualified Data.ByteString.Base64.URL as B64
-import qualified Data.ByteString.Lazy.Char8 as BL
+import Data.Aeson.Lens (key, _Array, _String)
+import Data.Maybe (mapMaybe)
 import Data.Monoid
-import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Network.HTTP.Nano
+import qualified Data.ByteString.Base64     as B64R
+import qualified Data.ByteString.Base64.URL as B64
+import qualified Data.ByteString.Char8      as B
+import qualified Data.ByteString.Lazy.Char8 as BL
+import qualified Data.Text                  as T
+import qualified Data.Vector                as V
+
+-- | Get collection of files in bucket.
+
+list
+  :: forall m e r. ( MonadIO m
+     , MonadError e m
+     , AsHttpError e
+     , MonadReader r m
+     , HasGcsCfg r
+     , HasHttpCfg r )
+  => m [FilePath]
+list = do
+  bucket <- view gcsCfgBucket
+  let url = "https://www.googleapis.com/storage/v1/b/" <> bucket <> "/o"
+  v <- (httpJSON =<< buildGCSReq GET url NoRequestData) :: m Value
+  let xs = maybe [] (mapMaybe (^? (key "name" . _String)) . V.toList) (v ^? key "items" . _Array)
+  return (T.unpack <$> xs)
 
 -- |Upload an object
 upload :: (MonadIO m, MonadError e m, AsHttpError e, MonadReader r m, HasGcsCfg r, HasHttpCfg r) => String -> String -> BL.ByteString -> m ()
