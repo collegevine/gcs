@@ -11,7 +11,7 @@ module Web.GCS(
 
 import Web.GCS.Types
 
-import Control.Lens (view, (^?))
+import Control.Lens (view, each, to, (^?), (^..))
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader)
 import Control.Monad.Trans (MonadIO, liftIO)
@@ -19,7 +19,7 @@ import Crypto.Hash.Algorithms (SHA256(..))
 import Crypto.PubKey.RSA.PKCS15 (sign)
 import Data.Aeson hiding (Array)
 import Data.Aeson.Lens (key, _Array, _String)
-import Data.Maybe (mapMaybe)
+import Data.DList (DList)
 import Data.Monoid
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Network.HTTP.Nano
@@ -28,8 +28,8 @@ import qualified Data.ByteString.Base64     as B64R
 import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.ByteString.Char8      as B
 import qualified Data.ByteString.Lazy.Char8 as BL
+import qualified Data.DList                 as D
 import qualified Data.Text                  as T
-import qualified Data.Vector                as V
 
 -- | Get collection of files in bucket.
 
@@ -43,10 +43,17 @@ list
   => m [FilePath]
 list = do
   bucket <- view gcsCfgBucket
-  let url = "https://www.googleapis.com/storage/v1/b/" <> bucket <> "/o"
-  v <- (httpJSON =<< buildGCSReq GET url NoRequestData) :: m Value
-  let xs = maybe [] (mapMaybe (^? (key "name" . _String)) . V.toList) (v ^? key "items" . _Array)
-  return (T.unpack <$> xs)
+  let getNames :: Value -> [FilePath]
+      getNames v = v ^.. key "items" . _Array . each . key "name" . _String . to T.unpack
+      go :: Maybe String -> m (DList FilePath)
+      go ptoken = do
+        let url = "https://www.googleapis.com/storage/v1/b/" <> bucket <> "/o"
+              <> maybe "" ("?pageToken=" ++) ptoken
+        r <- (httpJSON =<< buildGCSReq GET url NoRequestData) :: m Value
+        case r ^? (key "nextPageToken" . _String . to T.unpack) of
+          Nothing -> (return . D.fromList . getNames) r
+          Just ptoken' -> (D.fromList (getNames r) <>) <$> go (pure ptoken')
+  D.toList <$> go Nothing
 
 -- |Upload an object
 upload :: (MonadIO m, MonadError e m, AsHttpError e, MonadReader r m, HasGcsCfg r, HasHttpCfg r) => String -> String -> BL.ByteString -> m ()
